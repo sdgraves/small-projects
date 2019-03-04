@@ -1,15 +1,30 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 #define DIM 2
 #define DIM_2 (DIM*DIM)
 #define DIM_4 (DIM_2*DIM_2)
 
+/******************************************************************************/
+//This module solves Sudoku boards, returning the set of solved boards which
+//satisfy the conditions of the inputted board. DIM_2 is the highest number in
+//the set of numbers which may be played (e.g. 9 for a conventional board),
+//specified by DIM, its root.
+/******************************************************************************/
+
+//map[i][j] contains the validity of playing the number i+1 at the jth square,
+//stored at vec[j]. 
 typedef struct Board{
     char vec[DIM_4];
     char map[DIM_2][DIM_4];
     int counter;
 } Board;
+
+typedef struct Pair{
+    char c;
+    int index;
+} Pair;
 
 /******************************************************************************/
 
@@ -20,8 +35,6 @@ void set_filled( Board *b, int index )
     for ( int ii = 0; ii < DIM_2; ii++ )
 	b->map[ii][index] = 0;
 }
-
-
 
 /******************************************************************************/
 //updates the logic map due to one value at index ii.
@@ -41,7 +54,7 @@ void update_map( Board *b, int c, int index )
 
     int group_x = col/DIM;
     int group_y = row/DIM;
-//    NxN block
+    //NxN block
     for ( int ii = 0; ii < DIM; ii++ )
     {
 	for ( int jj = 0; jj < DIM; jj++ )
@@ -67,6 +80,8 @@ void get_map( Board *b )
 }
 
 /******************************************************************************/
+//prints a list b of length DIM_4, with some formatting. "logical" shifts
+//integers into the range of characters corresponding to integers.
 void print( char* b, int logical )
 {
     int offset = ( logical ? '0' : 0 );
@@ -94,54 +109,41 @@ void print_map( Board *b, char c )
     print( &b->map[c - '1'][0], 1 );
 }
 
+void check_maps( Board *b )
+{
+    for ( char c = '1'; c < '0' + DIM_2; c++ )
+	print_map( b, c );
+}
+
 
 void print_board( Board *b )
 {
     print( &b->vec[0], 0 );
 }
 
-
 /******************************************************************************/
-void test ( Board *b, char c, int index )
-{
-    //push changes to the map onto a queue of tuples,
-    //for use with board configurations that are temporary.
-}
-
-void undo( Board *b )
-{
-    //counterpart to test. These two methods are an improvement
-    //over resetting the entire board every time but won't impact
-    //performance for the typical case of only a few guesses.
-}
-
-/******************************************************************************/
-//To be replaced with the above
-void crude_undo( Board *b, int jj )
-{
-    b->vec[jj] = '0';
-    b->counter++;
-    memset( &b->map, 1, DIM_4*DIM_2 );
-    get_map( b );
-}    
-
-
+//places a character c on the board at the specified index. Updates board
+//properties and the map of what characters are legal moves.
 void set ( Board *b, char c, int index )
 {
-
     b->vec[index] = c;
     set_filled( b, index );
     update_map( b, c - '1', index );
     b->counter--;
-    printf("setting...\n");
-    print_board(b);
+}
+
+//method for when a guess is shown to be wrong.
+inline void elim ( Board *b, Pair p )
+{
+    b->map[p.c - '1'][p.index] = 0;
 }
 
 
 /******************************************************************************/
 //loops through every row, column, and group to see if any tile on the board
-//can only be filled with one character; fills it and reports what it was.
-char get_char( Board *b )
+//can only be filled with one character; fills it and reports the character
+//and location.
+Pair get_char( Board *b )
 {
     //check for squares that must be 1,2,...9
     for ( int ii = 0; ii < DIM_2; ii++ )
@@ -164,7 +166,8 @@ char get_char( Board *b )
 	    if ( sum_row == 1 )
 	    {
 		set( b, ii + '1', index );
-	  	return ii + 1;
+		Pair p = { ii + '1', index };
+		return p;
 	    }
 	}
 
@@ -184,7 +187,8 @@ char get_char( Board *b )
 	    if ( sum_col == 1 )
 	    {
 		set( b, ii + '1', index );
-		return ii + 1;
+		Pair p = { ii + '1', index };
+		return p;
 	    }
 
 	}
@@ -210,65 +214,140 @@ char get_char( Board *b )
 		if ( sum_group == 1 )
 		{
 		    set( b, ii + '1', index );
-		    return ii + 1;
+		    Pair p = { ii + '1', index };
+		    return p;		
 		}
 	    }
 	}
 
     }
-    return 0;
+    Pair p = { 0, 0 };
+    return p;		
+
 
 }
 
 
 /******************************************************************************/
+//for the board as the user inputs it -- fills all squares which could only
+//be one value.
 void reduce ( Board *b )
 {
-    while ( get_char(b) )
+    while ( get_char(b).c )
 	;
 }
 
-int solve( Board *b )
+/******************************************************************************/
+//since the logical operations within get_char are biconditional, i.e. filling
+// (n, i) implies filling (m, j), then filling (m, j) implies (n,i), with i,j
+//indices and n,m integers on [1, DIM_2], any result which necessarily follows
+//from a guess does not have to be tried on the board which supplied the initial
+//guess. 
+void solve_reduce( Board *b, Board *ref )
 {
-    //without guessing,
-    reduce( b );
+    Pair p;
+    while ( (p = get_char(b)).c )
+	elim( ref, p );
 
-    //otherwise,
+}
+
+/******************************************************************************/
+//create a new copy of board b with a guess ch set at the specified index.
+Board* set_and_copy( Board *b, char ch, int index )
+{
+    Board *c = malloc( sizeof(Board) );
+    memcpy( c, b, sizeof(Board) );
+    set( c, ch, index );
+    return c;
+}
+
+/******************************************************************************/
+//some helper data structures for the list of solutions
+
+typedef struct Node {
+    Board *board;
+    struct Node *prev;
+    struct Node *next;
+} Node;
+
+typedef struct BoardList {
+    Node *first;
+    Node *last;
+} BoardList;
+
+void list_push_front( BoardList *list, Board *b )
+{
+    Board *cpy = malloc(sizeof(Board));
+    Node *n = malloc( sizeof(Node) );
+    memcpy( cpy, b, sizeof(Board) );
+	
+    n->board = cpy;
+    Node *temp = list->first;
+    n->next = temp->next;
+    temp->next = n;
+    n->prev = temp;
+    n->next->prev = n;
+}
+
+
+/******************************************************************************/
+//the main method responsible for inputting guesses to boards which are not
+//sufficiently constrained. 
+void solve( Board *b, Board *ref, BoardList *list )
+{
+    static int count = 0;
+    Board *c;
     if ( b->counter )
     {
-	//b->map contains the map of valid guesses; once b->map is all zeros,
-	//the board is either solved or is unsolvable.
-
-	//first, solve the case that only needs one guess. This case demonstrates
-	//some of the functionality required to navigate the tree of all possible
-	//strings of guesses intended in the final version.
+	int hasGuesses = 0;
 	for ( int ii = 0; ii < DIM_2; ii++ )
 	{
 	    for ( int jj = 0; jj < DIM_4; jj++ )
 	    {
 		if ( b->map[ii][jj] )
 		{
-		    printf("Guessing %d at %d\n", ii+1, jj);
-		    set(b, ii + '1', jj);
-		    reduce( b );
-		    if ( b->counter == 0 )
-		    {
-			printf("Done!\n");
-			return 0;
-		    }
-		    else
-		    {
-			printf("Guess was wrong, resetting\n");
-			//reset the attempt of the guess
-			crude_undo( b, jj );
-		    }
+		    hasGuesses = 1;
+		    c = set_and_copy( b, ii + '1', jj );
+		    solve_reduce( c, b );
+		    solve(c, b, list);
+		    free(c);
 		}
 	    }
 	}
-
-	
-	printf("board requires multiple guesses\n");
+	if ( hasGuesses == 0 )
+	{
+	    count++;
+	}
     }
+    else
+    {
+	count++;
+	list_push_front(list, b);
+    }
+
+}
+
+/******************************************************************************/
+//Sets up the list to store the solutions of board b, uses a slightly different
+//reduce() function than the one used by the recursive solve to impose the
+//condition that all boards entering the solve function do not have moves which
+//must be played.
+BoardList* get_solns( Board *b )
+{
+    reduce( b );
+    
+    BoardList *l = malloc(sizeof(BoardList));
+    Node *head = malloc(sizeof(Node));
+    *head = (Node){ b, NULL, NULL };
+    Node *tail = malloc(sizeof(Node));
+    *tail = (Node){ b, head, NULL };
+    head->next = tail;
+    
+    l->first = head;
+    l->last = tail;
+
+    solve( b, b, l );
+    return l;
 }
 
 
@@ -405,11 +484,21 @@ int main( char argc, char** argv )
 {
     //set up the current board
     Board top;
+    Board ref;
+
+
     board_init( &top );
 
     set_2x2( &top );
-    solve( &top );
-//    printf("\nsolving\n");
+    print_board( &top );
+    printf("\nsolving\n");
+    BoardList *l = get_solns( &top );
+
+    for ( Node *n = l->first->next; n->next != NULL; n = n->next )
+    {
+	print_board( n->board );
+	printf("--------\n");
+    }
     
     return 0;
 }
