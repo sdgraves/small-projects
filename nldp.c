@@ -123,11 +123,13 @@ double lookup ( Pair state, double *buf )
 
     if ( ( x + (y+1)*N ) < N*M )
 	y_next = buf[ x + (y+1)*N ];
-
-    estimate = nearest + err_x * ( x_next - nearest ) + err_y * ( y_next - nearest );
+    
+    estimate = nearest + (err_x/(N-1)) * (x_next - nearest ) + (err_y/(M-1)) * ( y_next - nearest );
     
     return estimate;
 }
+
+
 
 
 /******************************************************************************/
@@ -223,6 +225,28 @@ Tuple search( double* prev, Pair state, double guess )
     return t;
 
 }
+
+
+/******************************************************************************/
+//brute-force search for checking work & for more general cases
+Tuple search_bf( double *prev, Pair state, double guess )
+{
+    //minimum depends on time window and must be set accordingly
+    double min = 10000.;
+    double v;
+    for ( double u = -1.; u <= 1.; u += 1./U )
+    {
+	double c1 = h( g(state, u), u ) + lookup( g(state,u), prev );
+	if ( c1 < min )
+	{
+	    min = c1;
+	    v = u;
+	}	
+    }
+    Pair next = g(state,v);
+    return (Tuple){ next.x0, next.x1, v, min };
+}
+
 
 /******************************************************************************/
 // Optimal policy & dynamics are not captured. These are the other attributes
